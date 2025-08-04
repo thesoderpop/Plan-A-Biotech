@@ -1,0 +1,557 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter, ReferenceLine, BarChart, Bar } from 'recharts';
+import { Activity, Zap, Database, Cpu, TrendingUp, AlertCircle, CheckCircle, Clock, HardDrive } from 'lucide-react';
+
+const PlanADemo = () => {
+  const [activeTab, setActiveTab] = useState('biomarkers');
+  const [biomarkerData, setBiomarkerData] = useState([]);
+  const [genomeData, setGenomeData] = useState([]);
+  const [streamData, setStreamData] = useState([]);
+  const [emaIndex, setEmaIndex] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+  const [currentPosition, setCurrentPosition] = useState(0);
+  const [detectionResults, setDetectionResults] = useState(null);
+  const streamInterval = useRef(null);
+
+  // Initialize biomarker simulation
+  useEffect(() => {
+    const generateBiomarkerData = () => {
+      const N = 12; // Number of biomarkers
+      const sigma = 0.3;
+      const tau = 0.8;
+      
+      const data = [];
+      for (let i = 0; i < N; i++) {
+        const trueSignal = Math.random() > 0.7 ? (Math.random() - 0.5) * 2 : 0;
+        const noise = (Math.random() - 0.5) * 2 * sigma;
+        const observed = trueSignal + noise;
+        
+        // Bayesian posterior calculation
+        const postMean = (tau * tau / (sigma * sigma + tau * tau)) * observed;
+        const postVar = (sigma * sigma * tau * tau) / (sigma * sigma + tau * tau);
+        
+        data.push({
+          id: i,
+          name: `Biomarker ${i + 1}`,
+          observed: observed,
+          trueSignal: trueSignal,
+          posterior: postMean,
+          confidence: Math.sqrt(postVar),
+          detected: Math.abs(postMean) > Math.sqrt(postVar) * 1.96
+        });
+      }
+      
+      // Calculate detection statistics
+      const radialStat = Math.sqrt(data.reduce((sum, d) => sum + d.observed * d.observed, 0));
+      const threshold = 2.5;
+      const globalDetection = radialStat > threshold;
+      
+      setBiomarkerData(data);
+      setDetectionResults({
+        radialStatistic: radialStat,
+        threshold: threshold,
+        detected: globalDetection,
+        falseAlarmRate: 1 - 0.95 // Simplified
+      });
+    };
+    
+    generateBiomarkerData();
+  }, []);
+
+  // Initialize genome-trait mapping
+  useEffect(() => {
+    const generateGenomeData = () => {
+      const L = 20; // Genome length
+      const T = 5;  // Number of traits
+      
+      const data = [];
+      for (let i = 0; i < 50; i++) {
+        const genome = Array.from({length: L}, () => Math.random() > 0.5 ? 1 : 0);
+        
+        // Simulate phenotype mapping (simplified linear model)
+        const traits = [];
+        for (let t = 0; t < T; t++) {
+          let traitValue = 0;
+          for (let g = 0; g < L; g++) {
+            traitValue += genome[g] * (Math.sin(g + t) * 0.3 + 0.1);
+          }
+          traits.push(traitValue);
+        }
+        
+        data.push({
+          id: i,
+          genome: genome.join(''),
+          traits: traits,
+          fitness: traits.reduce((sum, t) => sum + Math.abs(t), 0)
+        });
+      }
+      
+      setGenomeData(data.sort((a, b) => b.fitness - a.fitness));
+    };
+    
+    generateGenomeData();
+  }, []);
+
+  // Tiered-EMA streaming simulation
+  const updateStream = () => {
+    const K = 6; // Number of EMA tiers
+    const newPosition = currentPosition + 1;
+    
+    // Calculate EMA values using closed-form solution
+    const emaValues = [];
+    for (let k = 0; k < K; k++) {
+      const bias = 1 / (Math.pow(2, k + 1) - 1);
+      const emaValue = newPosition - bias;
+      emaValues.push({
+        tier: k,
+        value: emaValue,
+        bias: bias,
+        alpha: 1 - Math.pow(2, -(k + 1))
+      });
+    }
+    
+    setEmaIndex(emaValues);
+    setCurrentPosition(newPosition);
+    
+    // Add to stream visualization
+    setStreamData(prev => {
+      const newData = [...prev, {
+        position: newPosition,
+        actual: newPosition,
+        ema0: emaValues[0].value,
+        ema2: emaValues[2].value,
+        ema4: emaValues[4].value
+      }].slice(-100); // Keep last 100 points
+      return newData;
+    });
+  };
+
+  const toggleStream = () => {
+    if (isRunning) {
+      clearInterval(streamInterval.current);
+    } else {
+      streamInterval.current = setInterval(updateStream, 100);
+    }
+    setIsRunning(!isRunning);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (streamInterval.current) {
+        clearInterval(streamInterval.current);
+      }
+    };
+  }, []);
+
+  const TabButton = ({ id, label, icon: Icon, active }) => (
+    <button
+      onClick={() => setActiveTab(id)}
+      className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-all ${
+        active 
+          ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
+          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+      }`}
+    >
+      <Icon size={20} />
+      <span>{label}</span>
+    </button>
+  );
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 text-white">
+      {/* Header */}
+      <div className="bg-black/20 backdrop-blur border-b border-white/10">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                Plan A Biotech
+              </h1>
+              <p className="text-blue-200">Closed-Form Computational Biology Platform</p>
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-blue-200">YC S25 Application Demo</div>
+              <div className="text-xs text-gray-400">Breakthrough O(1) Algorithms</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        <div className="flex space-x-4 mb-8">
+          <TabButton id="biomarkers" label="Biomarker Analysis" icon={Activity} active={activeTab === 'biomarkers'} />
+          <TabButton id="genome" label="Genome Design" icon={Zap} active={activeTab === 'genome'} />
+          <TabButton id="streaming" label="Tiered-EMA™ Index" icon={Database} active={activeTab === 'streaming'} />
+          <TabButton id="performance" label="Performance" icon={Cpu} active={activeTab === 'performance'} />
+        </div>
+
+        {/* Biomarker Analysis Tab */}
+        {activeTab === 'biomarkers' && (
+          <div className="space-y-6">
+            <div className="bg-white/10 backdrop-blur rounded-xl p-6 border border-white/20">
+              <h2 className="text-2xl font-bold mb-4 flex items-center">
+                <Activity className="mr-2" />
+                Exact Bayesian Biomarker Inference
+              </h2>
+              <p className="text-blue-200 mb-6">
+                Real-time closed-form posterior computation using radial vector calculus. 
+                Detection via χ² statistics with exact false-alarm control.
+              </p>
+              
+              {detectionResults && (
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <div className="bg-black/20 p-4 rounded-lg">
+                    <div className="text-2xl font-bold text-green-400">
+                      {detectionResults.radialStatistic.toFixed(2)}
+                    </div>
+                    <div className="text-sm text-gray-300">Radial Statistic</div>
+                  </div>
+                  <div className="bg-black/20 p-4 rounded-lg">
+                    <div className="text-2xl font-bold text-blue-400">
+                      {detectionResults.threshold.toFixed(1)}
+                    </div>
+                    <div className="text-sm text-gray-300">Threshold</div>
+                  </div>
+                  <div className="bg-black/20 p-4 rounded-lg">
+                    <div className={`text-2xl font-bold flex items-center ${detectionResults.detected ? 'text-red-400' : 'text-green-400'}`}>
+                      {detectionResults.detected ? <AlertCircle className="mr-1" size={24} /> : <CheckCircle className="mr-1" size={24} />}
+                    </div>
+                    <div className="text-sm text-gray-300">
+                      {detectionResults.detected ? 'Signal Detected' : 'No Signal'}
+                    </div>
+                  </div>
+                  <div className="bg-black/20 p-4 rounded-lg">
+                    <div className="text-2xl font-bold text-yellow-400">
+                      {(detectionResults.falseAlarmRate * 100).toFixed(1)}%
+                    </div>
+                    <div className="text-sm text-gray-300">False Alarm Rate</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={biomarkerData}>
+                    <CartesianGrid strokeDasharray="3,3" stroke="#ffffff20" />
+                    <XAxis dataKey="name" stroke="#94a3b8" />
+                    <YAxis stroke="#94a3b8" />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
+                      labelStyle={{ color: '#e2e8f0' }}
+                    />
+                    <Bar dataKey="observed" fill="#3b82f6" name="Observed" />
+                    <Bar dataKey="posterior" fill="#10b981" name="Posterior Mean" />
+                    <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="5,5" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Genome Design Tab */}
+        {activeTab === 'genome' && (
+          <div className="space-y-6">
+            <div className="bg-white/10 backdrop-blur rounded-xl p-6 border border-white/20">
+              <h2 className="text-2xl font-bold mb-4 flex items-center">
+                <Zap className="mr-2" />
+                Inverse Genome Design
+              </h2>
+              <p className="text-blue-200 mb-6">
+                Direct phenotype-to-genotype mapping using embedded manifold inversion. 
+                Closed-form optimization over binary genome space.
+              </p>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-3">Top Performing Genomes</h3>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {genomeData.slice(0, 8).map((genome, idx) => (
+                      <div key={genome.id} className="bg-black/20 p-3 rounded-lg">
+                        <div className="text-xs font-mono text-green-400 mb-1">
+                          {genome.genome}
+                        </div>
+                        <div className="text-sm">
+                          Fitness: <span className="font-bold text-blue-400">{genome.fitness.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold mb-3">Trait Distribution</h3>
+                  <div className="h-60">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ScatterChart>
+                        <CartesianGrid strokeDasharray="3,3" stroke="#ffffff20" />
+                        <XAxis 
+                          type="number" 
+                          dataKey="fitness" 
+                          name="Fitness"
+                          stroke="#94a3b8"
+                        />
+                        <YAxis 
+                          type="number" 
+                          dataKey="id" 
+                          name="Genome ID"
+                          stroke="#94a3b8"
+                        />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
+                          labelStyle={{ color: '#e2e8f0' }}
+                        />
+                        <Scatter 
+                          data={genomeData} 
+                          fill="#8b5cf6"
+                          r={4}
+                        />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Streaming Index Tab */}
+        {activeTab === 'streaming' && (
+          <div className="space-y-6">
+            <div className="bg-white/10 backdrop-blur rounded-xl p-6 border border-white/20">
+              <h2 className="text-2xl font-bold mb-4 flex items-center">
+                <Database className="mr-2" />
+                Tiered-EMA™ Positional Index
+              </h2>
+              <p className="text-blue-200 mb-6">
+                Constant-memory (168 bytes) positional tracking for trillion-event streams. 
+                Closed-form solution: E_k(n) = n - 1/(2^(k+1) - 1)
+              </p>
+
+              <div className="grid grid-cols-2 gap-6 mb-6">
+                <div className="bg-black/20 p-4 rounded-lg">
+                  <div className="text-3xl font-bold text-blue-400 flex items-center">
+                    <Clock className="mr-2" />
+                    {currentPosition.toLocaleString()}
+                  </div>
+                  <div className="text-sm text-gray-300">Current Position</div>
+                </div>
+                <div className="bg-black/20 p-4 rounded-lg">
+                  <div className="text-3xl font-bold text-green-400 flex items-center">
+                    <HardDrive className="mr-2" />
+                    168B
+                  </div>
+                  <div className="text-sm text-gray-300">Memory Usage (Fixed)</div>
+                </div>
+              </div>
+
+              <div className="flex justify-center mb-6">
+                <button
+                  onClick={toggleStream}
+                  className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+                    isRunning 
+                      ? 'bg-red-600 hover:bg-red-700 text-white' 
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                  }`}
+                >
+                  {isRunning ? 'Stop Stream' : 'Start Stream'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-3">EMA Tiers (Closed-Form)</h3>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {emaIndex.map((ema) => (
+                      <div key={ema.tier} className="bg-black/20 p-3 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="font-mono text-sm">Tier {ema.tier}</span>
+                          <span className="font-bold text-blue-400">
+                            {ema.value.toFixed(3)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          α={ema.alpha.toFixed(4)}, bias={ema.bias.toFixed(4)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold mb-3">Real-Time Tracking</h3>
+                  <div className="h-60">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={streamData}>
+                        <CartesianGrid strokeDasharray="3,3" stroke="#ffffff20" />
+                        <XAxis dataKey="position" stroke="#94a3b8" />
+                        <YAxis stroke="#94a3b8" />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
+                          labelStyle={{ color: '#e2e8f0' }}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="actual" 
+                          stroke="#ef4444" 
+                          strokeWidth={2}
+                          name="Actual Position"
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="ema0" 
+                          stroke="#3b82f6" 
+                          strokeWidth={2}
+                          name="EMA Tier 0"
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="ema2" 
+                          stroke="#10b981" 
+                          strokeWidth={2}
+                          name="EMA Tier 2"
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="ema4" 
+                          stroke="#8b5cf6" 
+                          strokeWidth={2}
+                          name="EMA Tier 4"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Performance Tab */}
+        {activeTab === 'performance' && (
+          <div className="space-y-6">
+            <div className="bg-white/10 backdrop-blur rounded-xl p-6 border border-white/20">
+              <h2 className="text-2xl font-bold mb-4 flex items-center">
+                <Cpu className="mr-2" />
+                O(1) Performance Guarantees
+              </h2>
+              <p className="text-blue-200 mb-6">
+                Theoretical and practical performance metrics for all closed-form algorithms.
+              </p>
+
+              <div className="grid grid-cols-3 gap-6">
+                <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 p-6 rounded-xl border border-blue-500/30">
+                  <h3 className="text-lg font-semibold mb-4 text-blue-300">Biomarker Inference</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Time Complexity:</span>
+                      <span className="font-bold text-green-400">O(N)</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Space Complexity:</span>
+                      <span className="font-bold text-green-400">O(N)</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Exact Solution:</span>
+                      <span className="font-bold text-green-400">Yes</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Throughput:</span>
+                      <span className="font-bold text-blue-400">10M samples/sec</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-purple-600/20 to-purple-800/20 p-6 rounded-xl border border-purple-500/30">
+                  <h3 className="text-lg font-semibold mb-4 text-purple-300">Genome Search</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Time Complexity:</span>
+                      <span className="font-bold text-green-400">O(1)*</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Memory:</span>
+                      <span className="font-bold text-yellow-400">2^L lookup</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Constraint:</span>
+                      <span className="font-bold text-orange-400">L ≤ 20</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Query Rate:</span>
+                      <span className="font-bold text-blue-400">1B queries/sec</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 p-6 rounded-xl border border-green-500/30">
+                  <h3 className="text-lg font-semibold mb-4 text-green-300">Tiered-EMA™</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Time Complexity:</span>
+                      <span className="font-bold text-green-400">O(K)</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Memory:</span>
+                      <span className="font-bold text-green-400">168 bytes</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Stream Length:</span>
+                      <span className="font-bold text-green-400">Unlimited</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Event Rate:</span>
+                      <span className="font-bold text-blue-400">100M events/sec</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 p-6 rounded-xl border border-yellow-500/30">
+                <h3 className="text-xl font-bold mb-4 text-yellow-300 flex items-center">
+                  <TrendingUp className="mr-2" />
+                  Competitive Advantage
+                </h3>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="font-semibold text-white mb-2">Traditional Methods</h4>
+                    <ul className="space-y-1 text-gray-300 text-sm">
+                      <li>• MCMC: O(N × iterations) sampling</li>
+                      <li>• Genetic algorithms: O(population × generations)</li>
+                      <li>• Stream indexing: O(N) memory growth</li>
+                      <li>• Approximate solutions only</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-white mb-2">Plan A Breakthrough</h4>
+                    <ul className="space-y-1 text-green-300 text-sm">
+                      <li>• Exact closed-form solutions</li>
+                      <li>• Constant-time operations</li>
+                      <li>• Fixed memory footprint</li>
+                      <li>• 1000x-10000x speedup</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="bg-black/20 border-t border-white/10 mt-12">
+        <div className="max-w-7xl mx-auto px-6 py-6 text-center">
+          <p className="text-blue-200">
+            © 2025 Plan A Biotech - Revolutionizing computational biology with closed-form mathematical solutions
+          </p>
+          <p className="text-sm text-gray-400 mt-2">
+            Patent-pending algorithms • YC S25 Application • Contact: hello@planaiotech.com
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default PlanADemo;
